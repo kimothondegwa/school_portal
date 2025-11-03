@@ -1,0 +1,21 @@
+# Configuration files
+includes/config.php
+
+# Uploaded files
+assets/uploads/*
+uploads/*
+!uploads/.gitkeep
+!assets/uploads/.gitkeep
+
+# IDE files
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Environment files
+.env
+
+# Cache files
+*.cache
