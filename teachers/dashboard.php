@@ -1,7 +1,7 @@
 <?php
 // ====================================================
 // FILE: teacher/dashboard.php
-// Teacher (Lecturer) Dashboard with Monitoring
+// Enhanced Teacher Dashboard with Statistics & Graphs
 // ====================================================
 
 define('APP_ACCESS', true);
@@ -20,6 +20,10 @@ if (!isLoggedIn() || !isTeacher()) {
 $user = getCurrentUser();
 $db = getDB()->getConnection();
 
+// Get unread notifications
+$user_id = $user['user_id'];
+$unreadNotifications = getUnreadNotificationCount($user_id);
+
 // ✅ Get teacher_id
 $stmt = $db->prepare("SELECT teacher_id FROM teachers WHERE user_id = ?");
 $stmt->execute([$user['user_id']]);
@@ -35,7 +39,9 @@ $stats = [
     'unread_messages' => 0,
     'today_classes' => 0,
     'active_quizzes' => 0,
-    'avg_attendance' => 0
+    'avg_attendance' => 0,
+    'graded_submissions' => 0,
+    'total_submissions' => 0
 ];
 
 try {
@@ -58,6 +64,19 @@ try {
                           AND status = 'pending'");
     $stmt->execute([$teacher_id]);
     $stats['pending_submissions'] = $stmt->fetch(PDO::FETCH_ASSOC)['count'] ?? 0;
+
+    // Graded submissions
+    $stmt = $db->prepare("SELECT COUNT(*) as count FROM assignment_submissions 
+                          WHERE assignment_id IN (SELECT assignment_id FROM assignments WHERE teacher_id = ?) 
+                          AND status = 'graded'");
+    $stmt->execute([$teacher_id]);
+    $stats['graded_submissions'] = $stmt->fetch(PDO::FETCH_ASSOC)['count'] ?? 0;
+
+    // Total submissions
+    $stmt = $db->prepare("SELECT COUNT(*) as count FROM assignment_submissions 
+                          WHERE assignment_id IN (SELECT assignment_id FROM assignments WHERE teacher_id = ?)");
+    $stmt->execute([$teacher_id]);
+    $stats['total_submissions'] = $stmt->fetch(PDO::FETCH_ASSOC)['count'] ?? 0;
 
     // Total subjects
     $stmt = $db->prepare("SELECT COUNT(*) as count FROM subjects WHERE teacher_id = ? AND is_active = 1");
@@ -90,6 +109,85 @@ try {
 } catch (PDOException $e) {
     // Keep default zeros
 }
+
+// ✅ Data for Charts
+
+// Attendance Chart Data (Last 7 days)
+$attendanceData = ['labels' => [], 'present' => [], 'absent' => [], 'late' => []];
+try {
+    for ($i = 6; $i >= 0; $i--) {
+        $date = date('Y-m-d', strtotime("-{$i} days"));
+        $attendanceData['labels'][] = date('D', strtotime($date));
+        
+        $stmt = $db->prepare("SELECT 
+                              SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) as present,
+                              SUM(CASE WHEN status = 'absent' THEN 1 ELSE 0 END) as absent,
+                              SUM(CASE WHEN status = 'late' THEN 1 ELSE 0 END) as late
+                              FROM attendance 
+                              WHERE subject_id IN (SELECT subject_id FROM subjects WHERE teacher_id = ?)
+                              AND DATE(attendance_date) = ?");
+        $stmt->execute([$teacher_id, $date]);
+        $result = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        $attendanceData['present'][] = (int)($result['present'] ?? 0);
+        $attendanceData['absent'][] = (int)($result['absent'] ?? 0);
+        $attendanceData['late'][] = (int)($result['late'] ?? 0);
+    }
+} catch (PDOException $e) {}
+
+// Assignment Submission Status
+$submissionStatus = ['pending' => 0, 'submitted' => 0, 'graded' => 0, 'late' => 0];
+try {
+    $stmt = $db->prepare("SELECT status, COUNT(*) as count 
+                          FROM assignment_submissions 
+                          WHERE assignment_id IN (SELECT assignment_id FROM assignments WHERE teacher_id = ?)
+                          GROUP BY status");
+    $stmt->execute([$teacher_id]);
+    while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+        $submissionStatus[$row['status']] = (int)$row['count'];
+    }
+} catch (PDOException $e) {}
+
+// Subject-wise Student Distribution
+$subjectDistribution = ['labels' => [], 'data' => []];
+try {
+    $stmt = $db->prepare("SELECT s.subject_name, COUNT(e.student_id) as count 
+                          FROM subjects s
+                          LEFT JOIN enrollments e ON s.subject_id = e.subject_id
+                          WHERE s.teacher_id = ?
+                          GROUP BY s.subject_id
+                          LIMIT 6");
+    $stmt->execute([$teacher_id]);
+    while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+        $subjectDistribution['labels'][] = $row['subject_name'];
+        $subjectDistribution['data'][] = (int)$row['count'];
+    }
+} catch (PDOException $e) {}
+
+// Grade Distribution
+$gradeDistribution = ['labels' => ['A', 'B', 'C', 'D', 'F'], 'data' => [0, 0, 0, 0, 0]];
+try {
+    $stmt = $db->prepare("SELECT 
+                          SUM(CASE WHEN marks >= 90 THEN 1 ELSE 0 END) as a_grade,
+                          SUM(CASE WHEN marks >= 80 AND marks < 90 THEN 1 ELSE 0 END) as b_grade,
+                          SUM(CASE WHEN marks >= 70 AND marks < 80 THEN 1 ELSE 0 END) as c_grade,
+                          SUM(CASE WHEN marks >= 60 AND marks < 70 THEN 1 ELSE 0 END) as d_grade,
+                          SUM(CASE WHEN marks < 60 THEN 1 ELSE 0 END) as f_grade
+                          FROM assignment_submissions 
+                          WHERE assignment_id IN (SELECT assignment_id FROM assignments WHERE teacher_id = ?)
+                          AND marks IS NOT NULL");
+    $stmt->execute([$teacher_id]);
+    $result = $stmt->fetch(PDO::FETCH_ASSOC);
+    if ($result) {
+        $gradeDistribution['data'] = [
+            (int)($result['a_grade'] ?? 0),
+            (int)($result['b_grade'] ?? 0),
+            (int)($result['c_grade'] ?? 0),
+            (int)($result['d_grade'] ?? 0),
+            (int)($result['f_grade'] ?? 0)
+        ];
+    }
+} catch (PDOException $e) {}
 
 // ✅ Recent Assignments
 $recent_assignments = [];
@@ -132,6 +230,12 @@ try {
     $stmt->execute([$user['user_id']]);
     $recent_messages = $stmt->fetchAll(PDO::FETCH_ASSOC);
 } catch (PDOException $e) {}
+
+// Convert data to JSON for JavaScript
+$attendanceDataJson = json_encode($attendanceData);
+$submissionStatusJson = json_encode($submissionStatus);
+$subjectDistributionJson = json_encode($subjectDistribution);
+$gradeDistributionJson = json_encode($gradeDistribution);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -145,6 +249,9 @@ try {
 
 <!-- Font Awesome -->
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 <style>
 :root {
@@ -533,112 +640,49 @@ body {
     font-weight: 500;
 }
 
-/* Section Title */
-.section-title {
-    font-size: 1.5rem;
-    font-weight: 700;
-    color: #5a5c69;
+/* Chart Cards */
+.chart-card {
+    background: white;
+    border-radius: 15px;
+    padding: 1.5rem;
+    box-shadow: 0 5px 20px rgba(0, 0, 0, 0.08);
+    margin-bottom: 2rem;
+}
+
+.chart-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
     margin-bottom: 1.5rem;
+    padding-bottom: 1rem;
+    border-bottom: 2px solid #f8f9fc;
+}
+
+.chart-header h5 {
+    margin: 0;
+    font-weight: 600;
+    color: #5a5c69;
+    font-size: 1.2rem;
     display: flex;
     align-items: center;
     gap: 0.5rem;
 }
 
-.section-title i {
-    color: #764ba2;
+.chart-header i {
+    color: #667eea;
 }
 
-/* Dashboard Grid */
-.dashboard-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    gap: 1.5rem;
-    margin-bottom: 2rem;
-}
-
-.dashboard-card {
-    background: white;
-    border-radius: 15px;
-    padding: 2rem 1.5rem;
-    box-shadow: 0 5px 20px rgba(0, 0, 0, 0.08);
+.chart-container {
     position: relative;
-    overflow: hidden;
-    transition: all 0.3s ease;
-    text-decoration: none;
-    color: inherit;
-    display: block;
+    height: 300px;
 }
 
-.dashboard-card::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 4px;
-}
-
-.dashboard-card.upload::before { background: var(--info-gradient); }
-.dashboard-card.quiz::before { background: var(--success-gradient); }
-.dashboard-card.attendance::before { background: var(--warning-gradient); }
-.dashboard-card.grades::before { background: var(--primary-gradient); }
-.dashboard-card.notifications::before { background: var(--danger-gradient); }
-.dashboard-card.profile::before { background: var(--info-gradient); }
-
-.dashboard-card:hover {
-    transform: translateY(-8px);
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
-}
-
-.card-icon-wrapper {
-    width: 70px;
-    height: 70px;
-    border-radius: 15px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 2rem;
-    color: white;
-    margin-bottom: 1.5rem;
-    transition: all 0.3s ease;
-}
-
-.dashboard-card.upload .card-icon-wrapper { background: var(--info-gradient); }
-.dashboard-card.quiz .card-icon-wrapper { background: var(--success-gradient); }
-.dashboard-card.attendance .card-icon-wrapper { background: var(--warning-gradient); }
-.dashboard-card.grades .card-icon-wrapper { background: var(--primary-gradient); }
-.dashboard-card.notifications .card-icon-wrapper { background: var(--danger-gradient); }
-.dashboard-card.profile .card-icon-wrapper { background: var(--info-gradient); }
-
-.dashboard-card:hover .card-icon-wrapper {
-    transform: scale(1.1) rotate(5deg);
-}
-
-.dashboard-card h5 {
-    margin: 0 0 0.5rem 0;
-    font-size: 1.2rem;
-    font-weight: 700;
-    color: #5a5c69;
-}
-
-.dashboard-card p {
-    margin: 0;
-    color: #858796;
-    font-size: 0.9rem;
-}
-
-.dashboard-card .arrow-icon {
-    position: absolute;
-    bottom: 1.5rem;
-    right: 1.5rem;
-    font-size: 1.5rem;
-    color: #e3e6f0;
-    transition: all 0.3s ease;
-}
-
-.dashboard-card:hover .arrow-icon {
-    color: #764ba2;
-    transform: translateX(5px);
+/* Charts Grid */
+.charts-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+    gap: 2rem;
+    margin-bottom: 2rem;
 }
 
 /* Activity Sections */
@@ -822,7 +866,7 @@ body {
     }
     
     .stats-grid,
-    .dashboard-grid {
+    .charts-grid {
         grid-template-columns: 1fr;
     }
     
@@ -833,75 +877,7 @@ body {
 </style>
 </head>
 <body>
-    <!-- Sidebar -->
-    <div class="sidebar" id="sidebar">
-        <div class="sidebar-header">
-            <i class="fas fa-chalkboard-teacher"></i>
-            <h4>School Portal</h4>
-            <p>Teacher Panel</p>
-        </div>
-        
-        <div class="sidebar-menu">
-            <div class="menu-section">Main Menu</div>
-            <a href="dashboard.php" class="active">
-                <i class="fas fa-home"></i>
-                <span>Dashboard</span>
-            </a>
-            <a href="upload_assignment.php">
-                <i class="fas fa-file-upload"></i>
-                <span>Upload Assignments</span>
-            </a>
-            <a href="create_quiz.php">
-                <i class="fas fa-brain"></i>
-                <span>Create Quizzes</span>
-            </a>
-            <a href="mark_attendance.php">
-                <i class="fas fa-user-check"></i>
-                <span>Mark Attendance</span>
-            </a>
-            
-            <div class="menu-section">Academic</div>
-            <a href="mark_grades.php">
-                <i class="fas fa-award"></i>
-                <span>Grade Students</span>
-            </a>
-            <a href="my_classes.php">
-                <i class="fas fa-users"></i>
-                <span>My Classes</span>
-            </a>
-            <a href="schedule.php">
-                <i class="fas fa-calendar-alt"></i>
-                <span>Class Schedule</span>
-            </a>
-            
-            <div class="menu-section">Communication</div>
-            <a href="comment_students.php">
-                <i class="fas fa-bell"></i>
-                <span>Notifications</span>
-            </a>
-            <a href="message.php">
-                <i class="fas fa-envelope"></i>
-                <span>Messages</span>
-            </a>
-            
-            <div class="menu-section"></div>
-            <a href="view_timetable.php">
-                <i class="fas fa-calendar-week"></i>
-                <span>TimeTable</span>
-            </a>
-            <a href="settings.php">
-                <i class="fas fa-cog"></i>
-                <span>Settings</span>
-            </a>
-        </div>
-        
-        <div class="sidebar-footer">
-            <a href="../logout.php" style="background: rgba(255,255,255,0.1); border-radius: 8px; padding: 0.8rem; text-align: center; display: block;">
-                <i class="fas fa-sign-out-alt"></i>
-                <span>Logout</span>
-            </a>
-        </div>
-    </div>
+    <?php include __DIR__ . '/../includes/sidebar.php'; ?>
     
     <!-- Main Content -->
     <div class="main-content">
@@ -918,12 +894,7 @@ body {
                     <input type="text" placeholder="Search...">
                 </div>
                 
-                <div class="notification-icon">
-                    <i class="fas fa-bell"></i>
-                    <?php if ($stats['unread_messages'] > 0): ?>
-                        <span class="notification-badge"><?= $stats['unread_messages'] ?></span>
-                    <?php endif; ?>
-                </div>
+                <?php echo getNotificationBadgeHTML($user_id, 'comment_students.php'); ?>
                 
                 <div class="user-profile">
                     <div class="user-avatar">
@@ -944,7 +915,7 @@ body {
             <div class="welcome-section">
                 <div class="welcome-content">
                     <h3>Welcome back, <?= htmlspecialchars($user['username'] ?? 'Teacher') ?>! 👋</h3>
-                    <p>You have <?= $stats['today_classes'] ?> class<?= $stats['today_classes'] != 1 ? 'es' : '' ?> scheduled today.</p>
+                    <p>You have <?= $stats['today_classes'] ?> class<?= $stats['today_classes'] != 1 ? 'es' : '' ?> scheduled today. Keep up the great work!</p>
                 </div>
                 <div class="welcome-icon">
                     <i class="fas fa-chalkboard-teacher"></i>
@@ -1034,6 +1005,49 @@ body {
                 </div>
             </div>
 
+            <!-- Charts Section -->
+            <div class="charts-grid">
+                <!-- Attendance Chart -->
+                <div class="chart-card">
+                    <div class="chart-header">
+                        <h5><i class="fas fa-chart-line"></i> Weekly Attendance Trend</h5>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="attendanceChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Submission Status Chart -->
+                <div class="chart-card">
+                    <div class="chart-header">
+                        <h5><i class="fas fa-chart-pie"></i> Assignment Submission Status</h5>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="submissionChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Subject Distribution Chart -->
+                <div class="chart-card">
+                    <div class="chart-header">
+                        <h5><i class="fas fa-chart-bar"></i> Students per Subject</h5>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="subjectChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Grade Distribution Chart -->
+                <div class="chart-card">
+                    <div class="chart-header">
+                        <h5><i class="fas fa-chart-area"></i> Grade Distribution</h5>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="gradeChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
             <!-- Activity Sections -->
             <div class="activity-grid">
                 <!-- Recent Assignments -->
@@ -1091,105 +1105,33 @@ body {
                         </div>
                     <?php endif; ?>
                 </div>
-            </div>
 
-            <!-- Recent Messages -->
-            <div class="activity-card" style="margin-top: 2rem;">
-                <div class="activity-header">
-                    <h3><i class="fas fa-envelope"></i> Recent Messages</h3>
-                    <a href="message.php" class="view-all">View All →</a>
-                </div>
-                <?php if (!empty($recent_messages)): ?>
-                    <?php foreach ($recent_messages as $msg): ?>
-                        <div class="activity-item">
-                            <h5><?= htmlspecialchars($msg['sender_name']) ?></h5>
-                            <p><?= htmlspecialchars(substr($msg['message_body'], 0, 80)) ?>...</p>
-                            <span class="badge badge-primary">
-                                <?= date('M d, g:i A', strtotime($msg['sent_at'])) ?>
-                            </span>
-                            <?php if (!$msg['is_read']): ?>
-                                <span class="badge badge-warning">New</span>
-                            <?php endif; ?>
+                <!-- Recent Messages -->
+                <div class="activity-card">
+                    <div class="activity-header">
+                        <h3><i class="fas fa-envelope"></i> Recent Messages</h3>
+                        <a href="message.php" class="view-all">View All →</a>
+                    </div>
+                    <?php if (!empty($recent_messages)): ?>
+                        <?php foreach ($recent_messages as $msg): ?>
+                            <div class="activity-item">
+                                <h5><?= htmlspecialchars($msg['sender_name']) ?></h5>
+                                <p><?= htmlspecialchars(substr($msg['message_body'], 0, 80)) ?>...</p>
+                                <span class="badge badge-primary">
+                                    <?= date('M d, g:i A', strtotime($msg['sent_at'])) ?>
+                                </span>
+                                <?php if (!$msg['is_read']): ?>
+                                    <span class="badge badge-warning">New</span>
+                                <?php endif; ?>
+                            </div>
+                        <?php endforeach; ?>
+                    <?php else: ?>
+                        <div class="empty-state">
+                            <i class="fas fa-inbox"></i>
+                            <p>No messages yet</p>
                         </div>
-                    <?php endforeach; ?>
-                <?php else: ?>
-                    <div class="empty-state">
-                        <i class="fas fa-inbox"></i>
-                        <p>No messages yet</p>
-                    </div>
-                <?php endif; ?>
-            </div>
-
-            <!-- Section Title -->
-            <div class="section-title" style="margin-top: 3rem;">
-                <i class="fas fa-bolt"></i>
-                Quick Actions
-            </div>
-
-            <!-- Dashboard Cards -->
-            <div class="dashboard-grid">
-                <a href="upload_assignment.php" class="dashboard-card upload">
-                    <div class="card-icon-wrapper">
-                        📤
-                    </div>
-                    <h5>Upload Assignments</h5>
-                    <p>Create and share assignments with students</p>
-                    <i class="fas fa-arrow-right arrow-icon"></i>
-                </a>
-
-                <a href="create_quiz.php" class="dashboard-card quiz">
-                    <div class="card-icon-wrapper">
-                        🧠
-                    </div>
-                    <h5>Create Quizzes</h5>
-                    <p>Design interactive quizzes and tests</p>
-                    <i class="fas fa-arrow-right arrow-icon"></i>
-                </a>
-
-                <a href="mark_attendance.php" class="dashboard-card attendance">
-                    <div class="card-icon-wrapper">
-                        ✅
-                    </div>
-                    <h5>Mark Attendance</h5>
-                    <p>Track and record student attendance</p>
-                    <i class="fas fa-arrow-right arrow-icon"></i>
-                </a>
-
-                <a href="message.php" class="dashboard-card grades">
-                    <div class="card-icon-wrapper">
-                        💬
-                    </div>
-                    <h5>Messages</h5>
-                    <p>View and send student messages</p>
-                    <i class="fas fa-arrow-right arrow-icon"></i>
-                </a>
-
-                <a href="mark_grades.php" class="dashboard-card grades">
-                    <div class="card-icon-wrapper">
-                        📊
-                    </div>
-                    <h5>Grade Students</h5>
-                    <p>Evaluate and grade student submissions</p>
-                    <i class="fas fa-arrow-right arrow-icon"></i>
-                </a>
-
-                <a href="comment_students.php" class="dashboard-card notifications">
-                    <div class="card-icon-wrapper">
-                        🔔
-                    </div>
-                    <h5>Notifications</h5>
-                    <p>Send important updates and alerts</p>
-                    <i class="fas fa-arrow-right arrow-icon"></i>
-                </a>
-
-                <a href="view_timetable.php" class="dashboard-card profile">
-                    <div class="card-icon-wrapper">
-                        📅
-                    </div>
-                    <h5>TimeTable</h5>
-                    <p>View your teaching schedule</p>
-                    <i class="fas fa-arrow-right arrow-icon"></i>
-                </a>
+                    <?php endif; ?>
+                </div>
             </div>
         </div>
     </div>
@@ -1198,6 +1140,430 @@ body {
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     
     <script>
+        // Data from PHP
+        const attendanceData = <?= $attendanceDataJson ?>;
+        const submissionStatus = <?= $submissionStatusJson ?>;
+        const subjectDistribution = <?= $subjectDistributionJson ?>;
+        const gradeDistribution = <?= $gradeDistributionJson ?>;
+
+        // Chart.js Default Settings
+        Chart.defaults.font.family = "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif";
+        Chart.defaults.color = '#858796';
+
+        // Attendance Chart (Area Chart with Gradient)
+        const attendanceCtx = document.getElementById('attendanceChart').getContext('2d');
+        
+        // Create gradients
+        const gradientPresent = attendanceCtx.createLinearGradient(0, 0, 0, 300);
+        gradientPresent.addColorStop(0, 'rgba(17, 153, 142, 0.8)');
+        gradientPresent.addColorStop(1, 'rgba(17, 153, 142, 0.05)');
+        
+        const gradientAbsent = attendanceCtx.createLinearGradient(0, 0, 0, 300);
+        gradientAbsent.addColorStop(0, 'rgba(231, 74, 59, 0.8)');
+        gradientAbsent.addColorStop(1, 'rgba(231, 74, 59, 0.05)');
+        
+        const gradientLate = attendanceCtx.createLinearGradient(0, 0, 0, 300);
+        gradientLate.addColorStop(0, 'rgba(246, 194, 62, 0.8)');
+        gradientLate.addColorStop(1, 'rgba(246, 194, 62, 0.05)');
+        
+        new Chart(attendanceCtx, {
+            type: 'line',
+            data: {
+                labels: attendanceData.labels,
+                datasets: [
+                    {
+                        label: 'Present',
+                        data: attendanceData.present,
+                        borderColor: '#11998e',
+                        backgroundColor: gradientPresent,
+                        borderWidth: 4,
+                        tension: 0.4,
+                        fill: true,
+                        pointBackgroundColor: '#11998e',
+                        pointBorderColor: '#fff',
+                        pointBorderWidth: 3,
+                        pointRadius: 6,
+                        pointHoverRadius: 9,
+                        pointHoverBackgroundColor: '#11998e',
+                        pointHoverBorderColor: '#fff',
+                        pointHoverBorderWidth: 3
+                    },
+                    {
+                        label: 'Absent',
+                        data: attendanceData.absent,
+                        borderColor: '#e74a3b',
+                        backgroundColor: gradientAbsent,
+                        borderWidth: 4,
+                        tension: 0.4,
+                        fill: true,
+                        pointBackgroundColor: '#e74a3b',
+                        pointBorderColor: '#fff',
+                        pointBorderWidth: 3,
+                        pointRadius: 6,
+                        pointHoverRadius: 9,
+                        pointHoverBackgroundColor: '#e74a3b',
+                        pointHoverBorderColor: '#fff',
+                        pointHoverBorderWidth: 3
+                    },
+                    {
+                        label: 'Late',
+                        data: attendanceData.late,
+                        borderColor: '#f6c23e',
+                        backgroundColor: gradientLate,
+                        borderWidth: 4,
+                        tension: 0.4,
+                        fill: true,
+                        pointBackgroundColor: '#f6c23e',
+                        pointBorderColor: '#fff',
+                        pointBorderWidth: 3,
+                        pointRadius: 6,
+                        pointHoverRadius: 9,
+                        pointHoverBackgroundColor: '#f6c23e',
+                        pointHoverBorderColor: '#fff',
+                        pointHoverBorderWidth: 3
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'top',
+                        labels: {
+                            usePointStyle: true,
+                            padding: 20,
+                            font: { size: 13, weight: '600', family: "'Segoe UI', sans-serif" },
+                            color: '#5a5c69'
+                        }
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(0, 0, 0, 0.9)',
+                        padding: 16,
+                        titleFont: { size: 15, weight: '700' },
+                        bodyFont: { size: 14 },
+                        borderColor: '#667eea',
+                        borderWidth: 2,
+                        displayColors: true,
+                        boxWidth: 12,
+                        boxHeight: 12,
+                        usePointStyle: true,
+                        callbacks: {
+                            title: function(context) {
+                                return 'Day: ' + context[0].label;
+                            },
+                            label: function(context) {
+                                return ' ' + context.dataset.label + ': ' + context.parsed.y + ' students';
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        grid: { 
+                            color: 'rgba(0, 0, 0, 0.05)',
+                            drawBorder: false
+                        },
+                        ticks: { 
+                            padding: 12, 
+                            font: { size: 12, weight: '500' },
+                            color: '#858796',
+                            stepSize: 5
+                        },
+                        title: {
+                            display: true,
+                            text: 'Number of Students',
+                            font: { size: 13, weight: '600' },
+                            color: '#5a5c69',
+                            padding: { top: 10 }
+                        }
+                    },
+                    x: {
+                        grid: { display: false, drawBorder: false },
+                        ticks: { 
+                            padding: 12, 
+                            font: { size: 12, weight: '600' },
+                            color: '#5a5c69'
+                        }
+                    }
+                }
+            }
+        });
+
+        // Submission Status Chart (Animated Doughnut Chart)
+        const submissionCtx = document.getElementById('submissionChart').getContext('2d');
+        new Chart(submissionCtx, {
+            type: 'doughnut',
+            data: {
+                labels: ['Pending', 'Submitted', 'Graded', 'Late'],
+                datasets: [{
+                    data: [
+                        submissionStatus.pending || 0,
+                        submissionStatus.submitted || 0,
+                        submissionStatus.graded || 0,
+                        submissionStatus.late || 0
+                    ],
+                    backgroundColor: [
+                        'rgba(246, 194, 62, 0.9)',
+                        'rgba(78, 115, 223, 0.9)',
+                        'rgba(28, 200, 138, 0.9)',
+                        'rgba(231, 74, 59, 0.9)'
+                    ],
+                    borderColor: '#ffffff',
+                    borderWidth: 4,
+                    hoverOffset: 15,
+                    hoverBorderColor: '#ffffff',
+                    hoverBorderWidth: 4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                cutout: '65%',
+                animation: {
+                    animateScale: true,
+                    animateRotate: true
+                },
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: {
+                            padding: 20,
+                            font: { size: 13, weight: '600', family: "'Segoe UI', sans-serif" },
+                            usePointStyle: true,
+                            pointStyle: 'circle',
+                            color: '#5a5c69'
+                        }
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(0, 0, 0, 0.9)',
+                        padding: 16,
+                        titleFont: { size: 15, weight: '700' },
+                        bodyFont: { size: 14 },
+                        borderColor: '#667eea',
+                        borderWidth: 2,
+                        displayColors: true,
+                        boxWidth: 15,
+                        boxHeight: 15,
+                        callbacks: {
+                            label: function(context) {
+                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                const percentage = total > 0 ? ((context.parsed / total) * 100).toFixed(1) : 0;
+                                return ' ' + context.label + ': ' + context.parsed + ' (' + percentage + '%)';
+                            },
+                            afterLabel: function(context) {
+                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                if (total > 0) {
+                                    return 'Total Submissions: ' + total;
+                                }
+                                return '';
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        // Subject Distribution Chart (Horizontal Bar Chart with Gradient)
+        const subjectCtx = document.getElementById('subjectChart').getContext('2d');
+        
+        // Create gradient colors for each bar
+        const createGradient = (ctx, color1, color2) => {
+            const gradient = ctx.createLinearGradient(0, 0, 400, 0);
+            gradient.addColorStop(0, color1);
+            gradient.addColorStop(1, color2);
+            return gradient;
+        };
+        
+        const colors = [
+            ['rgba(102, 126, 234, 0.9)', 'rgba(118, 75, 162, 0.9)'],
+            ['rgba(17, 153, 142, 0.9)', 'rgba(56, 239, 125, 0.9)'],
+            ['rgba(240, 147, 251, 0.9)', 'rgba(245, 87, 108, 0.9)'],
+            ['rgba(79, 172, 254, 0.9)', 'rgba(0, 242, 254, 0.9)'],
+            ['rgba(250, 112, 154, 0.9)', 'rgba(254, 225, 64, 0.9)'],
+            ['rgba(255, 121, 63, 0.9)', 'rgba(255, 184, 34, 0.9)']
+        ];
+        
+        const backgroundColors = subjectDistribution.data.map((_, index) => 
+            createGradient(subjectCtx, colors[index % colors.length][0], colors[index % colors.length][1])
+        );
+        
+        new Chart(subjectCtx, {
+            type: 'bar',
+            data: {
+                labels: subjectDistribution.labels,
+                datasets: [{
+                    label: 'Number of Students',
+                    data: subjectDistribution.data,
+                    backgroundColor: backgroundColors,
+                    borderColor: 'rgba(255, 255, 255, 0.8)',
+                    borderWidth: 2,
+                    borderRadius: 12,
+                    borderSkipped: false,
+                    barThickness: 'flex',
+                    maxBarThickness: 50
+                }]
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(0, 0, 0, 0.9)',
+                        padding: 16,
+                        titleFont: { size: 15, weight: '700' },
+                        bodyFont: { size: 14 },
+                        borderColor: '#667eea',
+                        borderWidth: 2,
+                        callbacks: {
+                            label: function(context) {
+                                return ' Students Enrolled: ' + context.parsed.x;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        beginAtZero: true,
+                        grid: { 
+                            color: 'rgba(0, 0, 0, 0.05)',
+                            drawBorder: false
+                        },
+                        ticks: {
+                            padding: 10,
+                            font: { size: 12, weight: '600' },
+                            color: '#5a5c69',
+                            stepSize: 5
+                        },
+                        title: {
+                            display: true,
+                            text: 'Number of Students',
+                            font: { size: 13, weight: '600' },
+                            color: '#5a5c69',
+                            padding: { top: 10 }
+                        }
+                    },
+                    y: {
+                        grid: { display: false },
+                        ticks: {
+                            padding: 12,
+                            font: { size: 12, weight: '600' },
+                            color: '#5a5c69'
+                        }
+                    }
+                }
+            }
+        });
+
+        // Grade Distribution Chart (Radar Chart with Animation)
+        const gradeCtx = document.getElementById('gradeChart').getContext('2d');
+        new Chart(gradeCtx, {
+            type: 'radar',
+            data: {
+                labels: gradeDistribution.labels,
+                datasets: [{
+                    label: 'Grade Distribution',
+                    data: gradeDistribution.data,
+                    backgroundColor: 'rgba(102, 126, 234, 0.2)',
+                    borderColor: 'rgba(102, 126, 234, 1)',
+                    borderWidth: 3,
+                    pointBackgroundColor: [
+                        'rgba(28, 200, 138, 1)',
+                        'rgba(54, 185, 204, 1)',
+                        'rgba(246, 194, 62, 1)',
+                        'rgba(231, 133, 75, 1)',
+                        'rgba(231, 74, 59, 1)'
+                    ],
+                    pointBorderColor: '#fff',
+                    pointBorderWidth: 3,
+                    pointRadius: 6,
+                    pointHoverRadius: 9,
+                    pointHoverBackgroundColor: '#667eea',
+                    pointHoverBorderColor: '#fff',
+                    pointHoverBorderWidth: 3
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: {
+                    duration: 1500,
+                    easing: 'easeInOutQuart'
+                },
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(0, 0, 0, 0.9)',
+                        padding: 16,
+                        titleFont: { size: 15, weight: '700' },
+                        bodyFont: { size: 14 },
+                        borderColor: '#667eea',
+                        borderWidth: 2,
+                        displayColors: true,
+                        callbacks: {
+                            label: function(context) {
+                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                const percentage = total > 0 ? ((context.parsed.r / total) * 100).toFixed(1) : 0;
+                                return ' Grade ' + context.label + ': ' + context.parsed.r + ' students (' + percentage + '%)';
+                            },
+                            afterLabel: function(context) {
+                                const gradeLabels = {
+                                    'A': '90-100% (Excellent)',
+                                    'B': '80-89% (Good)',
+                                    'C': '70-79% (Average)',
+                                    'D': '60-69% (Below Average)',
+                                    'F': 'Below 60% (Fail)'
+                                };
+                                return gradeLabels[context.label] || '';
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    r: {
+                        beginAtZero: true,
+                        angleLines: {
+                            color: 'rgba(0, 0, 0, 0.1)',
+                            lineWidth: 1
+                        },
+                        grid: {
+                            color: 'rgba(0, 0, 0, 0.1)',
+                            circular: true
+                        },
+                        pointLabels: {
+                            font: { 
+                                size: 14, 
+                                weight: '700',
+                                family: "'Segoe UI', sans-serif"
+                            },
+                            color: '#5a5c69',
+                            padding: 15
+                        },
+                        ticks: {
+                            stepSize: 5,
+                            font: { size: 11, weight: '600' },
+                            color: '#858796',
+                            backdropColor: 'rgba(255, 255, 255, 0.9)',
+                            backdropPadding: 4,
+                            showLabelBackdrop: true
+                        }
+                    }
+                }
+            }
+        });
+
         // Toggle Sidebar for Mobile
         function toggleSidebar() {
             document.getElementById('sidebar').classList.toggle('active');
@@ -1243,7 +1609,7 @@ body {
         
         // Add fade-in animation to cards on load
         window.addEventListener('load', function() {
-            const elements = document.querySelectorAll('.stat-card, .dashboard-card, .activity-card, .welcome-section');
+            const elements = document.querySelectorAll('.stat-card, .chart-card, .activity-card, .welcome-section');
             elements.forEach((element, index) => {
                 setTimeout(() => {
                     element.style.opacity = '0';
@@ -1256,6 +1622,42 @@ body {
                     }, 50);
                 }, index * 50);
             });
+        });
+
+        // Number animation for stats
+        function animateValue(element, start, end, duration) {
+            let startTimestamp = null;
+            const step = (timestamp) => {
+                if (!startTimestamp) startTimestamp = timestamp;
+                const progress = Math.min((timestamp - startTimestamp) / duration, 1);
+                element.textContent = Math.floor(progress * (end - start) + start);
+                if (end.toString().includes('%')) {
+                    element.textContent += '%';
+                }
+                if (progress < 1) {
+                    window.requestAnimationFrame(step);
+                }
+            };
+            window.requestAnimationFrame(step);
+        }
+
+        // Trigger number animation when visible
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const number = entry.target;
+                    const text = number.textContent;
+                    const finalValue = parseInt(text);
+                    if (!isNaN(finalValue)) {
+                        animateValue(number, 0, finalValue, 1000);
+                        observer.unobserve(number);
+                    }
+                }
+            });
+        });
+
+        document.querySelectorAll('.stat-card h4').forEach(number => {
+            observer.observe(number);
         });
 
         // Auto-refresh stats every 5 minutes

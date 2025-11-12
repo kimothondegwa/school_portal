@@ -22,8 +22,8 @@ try {
                 $student_id = $_GET['student_id'];
                 $stmt = $db->prepare("
                     SELECT g.grade_id, s.first_name, s.last_name, 
-                           a.title AS assignment_title, g.marks, g.total_marks, 
-                           g.grade_letter, g.created_at
+                           a.title AS assignment_title, g.marks_obtained, g.total_marks, 
+                           g.grade, g.created_at
                     FROM grades g
                     JOIN students s ON g.student_id = s.student_id
                     JOIN assignments a ON g.assignment_id = a.assignment_id
@@ -41,8 +41,8 @@ try {
             } else {
                 $stmt = $db->query("
                     SELECT g.grade_id, s.first_name, s.last_name, 
-                           a.title AS assignment_title, g.marks, g.total_marks, 
-                           g.grade_letter, g.created_at
+                           a.title AS assignment_title, g.marks_obtained, g.total_marks, 
+                           g.grade, g.created_at
                     FROM grades g
                     JOIN students s ON g.student_id = s.student_id
                     JOIN assignments a ON g.assignment_id = a.assignment_id
@@ -67,38 +67,38 @@ try {
             if (
                 isset($data['assignment_id']) &&
                 isset($data['student_id']) &&
-                isset($data['marks']) &&
+                isset($data['marks_obtained']) &&
                 isset($data['total_marks'])
             ) {
                 $assignment_id = $data['assignment_id'];
                 $student_id = $data['student_id'];
-                $marks = $data['marks'];
+                $marks_obtained = $data['marks_obtained'];
                 $total_marks = $data['total_marks'];
 
                 // Calculate grade letter
-                $percentage = ($marks / $total_marks) * 100;
-                if ($percentage >= 80) $grade_letter = 'A';
-                elseif ($percentage >= 70) $grade_letter = 'B';
-                elseif ($percentage >= 60) $grade_letter = 'C';
-                elseif ($percentage >= 50) $grade_letter = 'D';
-                else $grade_letter = 'F';
+                $percentage = ($marks_obtained / $total_marks) * 100;
+                if ($percentage >= 80) $grade = 'A';
+                elseif ($percentage >= 70) $grade = 'B';
+                elseif ($percentage >= 60) $grade = 'C';
+                elseif ($percentage >= 50) $grade = 'D';
+                else $grade = 'F';
 
                 $stmt = $db->prepare("
-                    INSERT INTO grades (assignment_id, student_id, marks, total_marks, grade_letter, created_at)
-                    VALUES (:assignment_id, :student_id, :marks, :total_marks, :grade_letter, NOW())
+                    INSERT INTO grades (assignment_id, student_id, marks_obtained, total_marks, grade, created_at)
+                    VALUES (:assignment_id, :student_id, :marks_obtained, :total_marks, :grade, NOW())
                 ");
                 $stmt->execute([
                     ':assignment_id' => $assignment_id,
                     ':student_id' => $student_id,
-                    ':marks' => $marks,
+                    ':marks_obtained' => $marks_obtained,
                     ':total_marks' => $total_marks,
-                    ':grade_letter' => $grade_letter
+                    ':grade' => $grade
                 ]);
 
                 $response = [
                     "success" => true,
                     "message" => "Grade added successfully",
-                    "grade_letter" => $grade_letter
+                    "grade" => $grade
                 ];
             } else {
                 $response['message'] = "Missing required fields";
@@ -110,34 +110,34 @@ try {
         // =======================================================
         case 'PUT':
             parse_str(file_get_contents("php://input"), $data);
-            if (isset($data['grade_id']) && isset($data['marks']) && isset($data['total_marks'])) {
+            if (isset($data['grade_id']) && isset($data['marks_obtained']) && isset($data['total_marks'])) {
                 $grade_id = $data['grade_id'];
-                $marks = $data['marks'];
+                $marks_obtained = $data['marks_obtained'];
                 $total_marks = $data['total_marks'];
 
-                $percentage = ($marks / $total_marks) * 100;
-                if ($percentage >= 80) $grade_letter = 'A';
-                elseif ($percentage >= 70) $grade_letter = 'B';
-                elseif ($percentage >= 60) $grade_letter = 'C';
-                elseif ($percentage >= 50) $grade_letter = 'D';
-                else $grade_letter = 'F';
+                $percentage = ($marks_obtained / $total_marks) * 100;
+                if ($percentage >= 80) $grade = 'A';
+                elseif ($percentage >= 70) $grade = 'B';
+                elseif ($percentage >= 60) $grade = 'C';
+                elseif ($percentage >= 50) $grade = 'D';
+                else $grade = 'F';
 
                 $stmt = $db->prepare("
                     UPDATE grades 
-                    SET marks = :marks, total_marks = :total_marks, grade_letter = :grade_letter 
+                    SET marks_obtained = :marks_obtained, total_marks = :total_marks, grade = :grade 
                     WHERE grade_id = :grade_id
                 ");
                 $stmt->execute([
-                    ':marks' => $marks,
+                    ':marks_obtained' => $marks_obtained,
                     ':total_marks' => $total_marks,
-                    ':grade_letter' => $grade_letter,
+                    ':grade' => $grade,
                     ':grade_id' => $grade_id
                 ]);
 
                 $response = [
                     "success" => true,
                     "message" => "Grade updated successfully",
-                    "grade_letter" => $grade_letter
+                    "grade" => $grade
                 ];
             } else {
                 $response['message'] = "Missing parameters";

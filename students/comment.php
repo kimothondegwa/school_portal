@@ -15,6 +15,7 @@ if (!isLoggedIn() || $_SESSION['role'] !== 'student') {
 
 $db = getDB();
 $user = getCurrentUser();
+$user_id = $_SESSION['user_id'];
 $error = '';
 
 // ✅ Fetch notifications sent to this student
@@ -692,6 +693,9 @@ body {
         </div>
     </div>
     
+    <!-- Sidebar -->
+    <?php include __DIR__ . '/../includes/sidebar.php'; ?>
+    
     <!-- Main Content -->
     <div class="main-content">
         <!-- Topbar -->
@@ -702,6 +706,7 @@ body {
             </div>
             
             <div class="topbar-right">
+                <?php echo getNotificationBadgeHTML($user_id, 'comment.php'); ?>
                 <div class="user-profile">
                     <div class="user-avatar">
                         <?= strtoupper(substr($user['username'] ?? 'S', 0, 1)) ?>

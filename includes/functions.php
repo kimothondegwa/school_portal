@@ -578,14 +578,14 @@ function calculateAttendancePercentage($student_id, $start_date = null, $end_dat
 /**
  * Create a notification
  */
-function createNotification($user_id, $sender_id, $title, $message, $type = 'general', $related_id = null) {
+function createNotification($recipient_id, $sender_id, $title, $message, $type = 'general', $related_id = null) {
     $db = getDB();
     return $db->query("
         INSERT INTO notifications 
-        (user_id, sender_id, title, message, type, related_id)
-        VALUES (:user_id, :sender_id, :title, :message, :type, :related_id)
+        (recipient_id, sender_id, title, message, type, related_id, created_at, is_read)
+        VALUES (:recipient_id, :sender_id, :title, :message, :type, :related_id, NOW(), 0)
     ")
-    ->bind(':user_id', $user_id)
+    ->bind(':recipient_id', $recipient_id)
     ->bind(':sender_id', $sender_id)
     ->bind(':title', $title)
     ->bind(':message', $message)
@@ -597,14 +597,14 @@ function createNotification($user_id, $sender_id, $title, $message, $type = 'gen
 /**
  * Get unread notification count
  */
-function getUnreadNotificationCount($user_id) {
+function getUnreadNotificationCount($recipient_id) {
     $db = getDB();
     $result = $db->query("
         SELECT COUNT(*) as count 
         FROM notifications 
-        WHERE user_id = :user_id AND is_read = 0
+        WHERE recipient_id = :recipient_id AND is_read = 0
     ")
-    ->bind(':user_id', $user_id)
+    ->bind(':recipient_id', $recipient_id)
     ->fetch();
     
     return $result['count'] ?? 0;
@@ -613,15 +613,15 @@ function getUnreadNotificationCount($user_id) {
 /**
  * Get recent notifications
  */
-function getRecentNotifications($user_id, $limit = 10) {
+function getRecentNotifications($recipient_id, $limit = 10) {
     $db = getDB();
     return $db->query("
         SELECT * FROM notifications 
-        WHERE user_id = :user_id
+        WHERE recipient_id = :recipient_id
         ORDER BY created_at DESC
         LIMIT :limit
     ")
-    ->bind(':user_id', $user_id)
+    ->bind(':recipient_id', $recipient_id)
     ->bind(':limit', $limit)
     ->fetchAll();
 }
@@ -638,6 +638,33 @@ function markNotificationRead($notification_id) {
     ")
     ->bind(':id', $notification_id)
     ->execute();
+}
+
+/**
+ * Get notification badge HTML (for use in all pages)
+ */
+function getNotificationBadgeHTML($user_id, $notification_page = 'comment.php') {
+    $count = getUnreadNotificationCount($user_id);
+    if ($count > 0) {
+        $displayCount = $count > 9 ? '9+' : $count;
+        return "
+            <div class=\"notification-icon\">
+                <a href=\"{$notification_page}\" style=\"color: inherit; text-decoration: none;\">
+                    <i class=\"fas fa-bell\"></i>
+                    <span class=\"notification-badge\" style=\"background: #ff4444; animation: pulse 1.5s infinite;\">
+                        {$displayCount}
+                    </span>
+                </a>
+            </div>
+        ";
+    }
+    return "
+        <div class=\"notification-icon\">
+            <a href=\"{$notification_page}\" style=\"color: inherit; text-decoration: none;\">
+                <i class=\"fas fa-bell\"></i>
+            </a>
+        </div>
+    ";
 }
 
 // ============================================
@@ -765,8 +792,15 @@ function getStudentDashboardStats($student_id, $class_level) {
     // Unread messages
     $stats['unread_messages'] = getUnreadMessageCount($student_id);
     
-    // Unread notifications
-    $stats['unread_notifications'] = getUnreadNotificationCount($student_id);
+    // Unread notifications — map student_id -> user_id (notifications use recipient_id which is a user_id)
+    try {
+        $db->query("SELECT user_id FROM students WHERE student_id = :sid");
+        $db->bind(':sid', $student_id);
+        $studentUserRow = $db->fetch();
+        $stats['unread_notifications'] = $studentUserRow ? getUnreadNotificationCount($studentUserRow['user_id']) : 0;
+    } catch (Exception $e) {
+        $stats['unread_notifications'] = 0;
+    }
     
     // Attendance percentage (last 30 days)
     $start_date = date('Y-m-d', strtotime('-30 days'));
@@ -909,4 +943,15 @@ function createSubmission($assignment_id, $student_id, $file_path, $text = '') {
     }
 
     return ['success' => false, 'message' => 'Failed to create submission'];
+}
+
+/**
+ * Get subject name by subject ID
+ */
+function getSubjectName($subject_id) {
+    $db = getDB();
+    $result = $db->query("SELECT subject_name FROM subjects WHERE subject_id = :subject_id")
+                 ->bind(':subject_id', $subject_id)
+                 ->fetch();
+    return $result ? $result['subject_name'] : 'Unknown Subject';
 }

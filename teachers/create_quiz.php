@@ -2,6 +2,7 @@
 define('APP_ACCESS', true);
 require_once __DIR__ . '/../includes/config.php';
 require_once __DIR__ . '/../includes/db.php';
+require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/auth.php';
 
 startSecureSession();
@@ -13,6 +14,7 @@ if (!isLoggedIn() || !isTeacher()) {
 }
 
 $user = getCurrentUser();
+$user_id = $_SESSION['user_id'];
 $db = getDB();
 $success = '';
 $error = '';
@@ -688,74 +690,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && empty($error)) {
 </head>
 <body>
     <!-- Sidebar -->
-    <div class="sidebar" id="sidebar">
-        <div class="sidebar-header">
-            <i class="fas fa-chalkboard-teacher"></i>
-            <h4>School Portal</h4>
-            <p>Teacher Panel</p>
-        </div>
-        
-        <div class="sidebar-menu">
-            <div class="menu-section">Main Menu</div>
-            <a href="dashboard.php">
-                <i class="fas fa-home"></i>
-                <span>Dashboard</span>
-            </a>
-            <a href="upload_assignment.php">
-                <i class="fas fa-file-upload"></i>
-                <span>Upload Assignments</span>
-            </a>
-            <a href="create_quiz.php" class="active">
-                <i class="fas fa-brain"></i>
-                <span>Create Quizzes</span>
-            </a>
-            <a href="mark_attendance.php">
-                <i class="fas fa-user-check"></i>
-                <span>Mark Attendance</span>
-            </a>
-            
-            <div class="menu-section">Academic</div>
-            <a href="mark_grades.php">
-                <i class="fas fa-award"></i>
-                <span>Grade Students</span>
-            </a>
-            <a href="my_classes.php">
-                <i class="fas fa-users"></i>
-                <span>My Classes</span>
-            </a>
-            <a href="schedule.php">
-                <i class="fas fa-calendar-alt"></i>
-                <span>Class Schedule</span>
-            </a>
-            
-            <div class="menu-section">Communication</div>
-            <a href="notifications.php">
-                <i class="fas fa-bell"></i>
-                <span>Notifications</span>
-            </a>
-            <a href="messages.php">
-                <i class="fas fa-envelope"></i>
-                <span>Messages</span>
-            </a>
-            
-            <div class="menu-section">Profile</div>
-            <a href="profile.php">
-                <i class="fas fa-user-circle"></i>
-                <span>My Profile</span>
-            </a>
-            <a href="settings.php">
-                <i class="fas fa-cog"></i>
-                <span>Settings</span>
-            </a>
-        </div>
-        
-        <div class="sidebar-footer">
-            <a href="../logout.php" style="background: rgba(255,255,255,0.1); border-radius: 8px; padding: 0.8rem; text-align: center; display: block;">
-                <i class="fas fa-sign-out-alt"></i>
-                <span>Logout</span>
-            </a>
-        </div>
-    </div>
+    <?php include __DIR__ . '/../includes/sidebar.php'; ?>
     
     <!-- Main Content -->
     <div class="main-content">
@@ -767,10 +702,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && empty($error)) {
             </div>
             
             <div class="topbar-right">
-                <div class="notification-icon">
-                    <i class="fas fa-bell"></i>
-                    <span class="notification-badge">3</span>
-                </div>
+                <?php echo getNotificationBadgeHTML($user_id, 'comment_students.php'); ?>
                 
                 <div class="user-profile">
                     <div class="user-avatar">

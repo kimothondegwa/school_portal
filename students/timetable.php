@@ -136,6 +136,13 @@ unset($slots);
 <body>
 
 <div class="container">
+    <!-- Back to Dashboard Button -->
+    <div style="margin-bottom: 1.5rem;">
+        <a href="dashboard.php" class="btn btn-outline-primary" style="border-radius: 8px; padding: 10px 20px; font-weight: 600;">
+            <i class="fas fa-arrow-left me-2"></i> Back to Dashboard
+        </a>
+    </div>
+
     <h2 class="mb-4 text-center">
         <i class="fas fa-calendar-alt me-2"></i>
         My Weekly Timetable

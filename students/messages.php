@@ -2,6 +2,7 @@
 define('APP_ACCESS', true);
 require_once __DIR__ . '/../includes/config.php';
 require_once __DIR__ . '/../includes/db.php';
+require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/auth.php';
 
 startSecureSession();
@@ -14,6 +15,9 @@ if (!isLoggedIn() || $_SESSION['role'] !== 'student') {
 
 $user_id = $_SESSION['user_id'];
 $db = getDB();
+
+// Get unread notifications
+$unreadNotifications = getUnreadNotificationCount($user_id);
 
 /* ===============================
    ✅ Message Counts
@@ -582,6 +586,7 @@ body {
     color: #5a5c69;
     margin-bottom: 0.3rem;
     display: -webkit-box;
+    line-clamp: 1;
     -webkit-line-clamp: 1;
     -webkit-box-orient: vertical;
     overflow: hidden;
@@ -591,6 +596,7 @@ body {
     color: #858796;
     font-size: 0.85rem;
     display: -webkit-box;
+    line-clamp: 2;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
@@ -720,61 +726,9 @@ body {
 </head>
 <body>
     <!-- Sidebar -->
-    <div class="sidebar" id="sidebar">
-        <div class="sidebar-header">
-            <i class="fas fa-user-graduate"></i>
-            <h4>School Portal</h4>
-            <p>Student Panel</p>
-        </div>
-        
-        <div class="sidebar-menu">
-            <div class="menu-section">Main Menu</div>
-            <a href="dashboard.php">
-                <i class="fas fa-home"></i>
-                <span>Dashboard</span>
-            </a>
-            <a href="messages.php" class="active">
-                <i class="fas fa-envelope"></i>
-                <span>Messages</span>
-            </a>
-            
-            <div class="menu-section">Academics</div>
-            <a href="submit_assignment.php">
-                <i class="fas fa-file-upload"></i>
-                <span>Submit Assignment</span>
-            </a>
-            <a href="take_quiz.php">
-                <i class="fas fa-brain"></i>
-                <span>Take Quiz</span>
-            </a>
-            <a href="view_grades.php">
-                <i class="fas fa-chart-line"></i>
-                <span>View Grades</span>
-            </a>
-            <a href="attendance.php">
-                <i class="fas fa-calendar-check"></i>
-                <span>My Attendance</span>
-            </a>
-            
-            <div class="menu-section">Profile</div>
-            <a href="profile.php">
-                <i class="fas fa-user-circle"></i>
-                <span>My Profile</span>
-            </a>
-            <a href="settings.php">
-                <i class="fas fa-cog"></i>
-                <span>Settings</span>
-            </a>
-        </div>
-        
-        <div class="sidebar-footer">
-            <a href="../logout.php" style="background: rgba(255,255,255,0.1); border-radius: 8px; padding: 0.8rem; text-align: center; display: block;">
-                <i class="fas fa-sign-out-alt"></i>
-                <span>Logout</span>
-            </a>
-        </div>
-    </div>
-  <!-- Main Content -->
+    <?php include __DIR__ . '/../includes/sidebar.php'; ?>
+    
+    <!-- Main Content -->
 <div class="main-content">
     <!-- Topbar -->
     <div class="topbar">
@@ -784,10 +738,7 @@ body {
         </div>
         
         <div class="topbar-right">
-            <div class="notification-icon">
-                <i class="fas fa-bell"></i>
-                <span class="notification-badge"><?= $unread_count ?></span>
-            </div>
+            <?php echo getNotificationBadgeHTML($user_id, 'comment.php'); ?>
             
             <div class="user-profile">
                 <div class="user-avatar">

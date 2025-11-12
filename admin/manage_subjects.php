@@ -688,44 +688,7 @@ $assignedSubjects = count(array_filter($subjects, fn($s) => !empty($s['teacher_i
 </head>
 <body>
     <!-- Sidebar -->
-    <div class="sidebar">
-        <div class="sidebar-header">
-            <i class="fas fa-graduation-cap"></i>
-            <h4>School Portal</h4>
-            <p>Admin Panel</p>
-        </div>
-        
-        <div class="sidebar-menu">
-            <a href="dashboard.php">
-                <i class="fas fa-home"></i>
-                <span>Dashboard</span>
-            </a>
-            <a href="manage_teachers.php">
-                <i class="fas fa-chalkboard-teacher"></i>
-                <span>Manage Teachers</span>
-            </a>
-            <a href="manage_students.php">
-                <i class="fas fa-user-graduate"></i>
-                <span>View Students</span>
-            </a>
-            <a href="manage_subjects.php" class="active">
-                <i class="fas fa-book"></i>
-                <span>Manage Subjects</span>
-            </a>
-            <a href="manage_timetable.php">
-                <i class="fas fa-calendar-alt"></i>
-                <span>Timetables</span>
-            </a>
-            <a href="reports.php">
-                <i class="fas fa-file-alt"></i>
-                <span>Reports</span>
-            </a>
-            <a href="../logout.php">
-                <i class="fas fa-sign-out-alt"></i>
-                <span>Logout</span>
-            </a>
-        </div>
-    </div>
+    <?php include __DIR__ . '/../includes/sidebar.php'; ?>
     
     <!-- Main Content -->
     <div class="main-content">

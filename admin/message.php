@@ -560,6 +560,7 @@ body {
     overflow: hidden;
     text-overflow: ellipsis;
     display: -webkit-box;
+    line-clamp: 2;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
     line-height: 1.5;
@@ -677,60 +678,7 @@ body {
 </head>
 <body>
 <!-- Sidebar -->
-<div class="sidebar" id="sidebar">
-    <div class="sidebar-header">
-        <i class="fas fa-graduation-cap"></i>
-        <h4>School Portal</h4>
-        <p>Admin Panel</p>
-    </div>
-    
-    <div class="sidebar-menu">
-        <div class="menu-section">Main Menu</div>
-        <a href="dashboard.php">
-            <i class="fas fa-home"></i>
-            <span>Dashboard</span>
-        </a>
-        <a href="manage_teachers.php">
-            <i class="fas fa-chalkboard-teacher"></i>
-            <span>Manage Teachers</span>
-        </a>
-        <a href="manage_students.php">
-            <i class="fas fa-user-graduate"></i>
-            <span>View Students</span>
-        </a>
-        <a href="manage_subjects.php">
-            <i class="fas fa-book"></i>
-            <span>Manage Subjects</span>
-        </a>
-        
-        <div class="menu-section">Communication</div>
-        <a href="notifications.php">
-            <i class="fas fa-bell"></i>
-            <span>Notifications</span>
-        </a>
-        <a href="message.php" class="active">
-            <i class="fas fa-envelope"></i>
-            <span>Messages</span>
-        </a>
-        
-        <div class="menu-section">System</div>
-        <a href="reports.php">
-            <i class="fas fa-file-alt"></i>
-            <span>Reports</span>
-        </a>
-        <a href="settings.php">
-            <i class="fas fa-cog"></i>
-            <span>Settings</span>
-        </a>
-    </div>
-    
-    <div class="sidebar-footer">
-        <a href="../logout.php">
-            <i class="fas fa-sign-out-alt me-2"></i>
-            <span>Logout</span>
-        </a>
-    </div>
-</div>
+<?php include __DIR__ . '/../includes/sidebar.php'; ?>
 
 <!-- Main Content -->
 <div class="main-content">

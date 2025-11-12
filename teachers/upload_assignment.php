@@ -20,6 +20,11 @@ if (!isLoggedIn() || !isTeacher()) {
 
 $user = getCurrentUser();
 $db = getDB();
+
+// Get unread notifications
+$user_id = $user['user_id'];
+$unreadNotifications = getUnreadNotificationCount($user_id);
+
 $success = '';
 $error = '';
 
@@ -52,7 +57,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && empty($error)) {
         $error = "Please fill in all required fields and upload a valid file.";
     } else {
         // Validate file type and size
-        $allowed = ['pdf','doc','docx','ppt','pptx','jpg','jpeg','png'];
+        $allowed = ['pdf', 'doc', 'docx', 'ppt', 'pptx', 'jpg', 'jpeg', 'png', 'gif', 'xls', 'xlsx', 'txt', 'zip', 'rar', 'mp4', 'avi', 'mov'];
         $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
 
         if (!in_array($ext, $allowed)) {
@@ -79,6 +84,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && empty($error)) {
                     $db->bind(':total_marks', $total_marks);
                     $db->bind(':file_path', $filename);
                     $db->execute();
+                    $assignment_id = $db->lastInsertId();
+                    
+                    // Notify all students in this subject
+                    $students = $db->query("
+                        SELECT DISTINCT u.user_id 
+                        FROM users u 
+                        INNER JOIN students s ON u.user_id = s.user_id 
+                        WHERE s.class_level IN (SELECT DISTINCT class_level FROM subjects WHERE subject_id = :subject_id)
+                    ")->bind(':subject_id', $subject_id)->fetchAll();
+                    
+                    foreach ($students as $student) {
+                        createNotification(
+                            $student['user_id'],
+                            $user['user_id'],
+                            'New Assignment: ' . htmlspecialchars($title),
+                            'A new assignment has been uploaded: ' . htmlspecialchars($title),
+                            'assignment',
+                            $assignment_id
+                        );
+                    }
+                    
                     $success = "Assignment uploaded successfully!";
                 } catch (PDOException $e) {
                     $error = "Database error: " . $e->getMessage();
@@ -675,74 +701,7 @@ body {
 </head>
 <body>
     <!-- Sidebar -->
-    <div class="sidebar" id="sidebar">
-        <div class="sidebar-header">
-            <i class="fas fa-chalkboard-teacher"></i>
-            <h4>School Portal</h4>
-            <p>Teacher Panel</p>
-        </div>
-        
-        <div class="sidebar-menu">
-            <div class="menu-section">Main Menu</div>
-            <a href="dashboard.php">
-                <i class="fas fa-home"></i>
-                <span>Dashboard</span>
-            </a>
-            <a href="upload_assignment.php" class="active">
-                <i class="fas fa-file-upload"></i>
-                <span>Upload Assignments</span>
-            </a>
-            <a href="create_quiz.php">
-                <i class="fas fa-brain"></i>
-                <span>Create Quizzes</span>
-            </a>
-            <a href="mark_attendance.php">
-                <i class="fas fa-user-check"></i>
-                <span>Mark Attendance</span>
-            </a>
-            
-            <div class="menu-section">Academic</div>
-            <a href="mark_grades.php">
-                <i class="fas fa-award"></i>
-                <span>Grade Students</span>
-            </a>
-            <a href="my_classes.php">
-                <i class="fas fa-users"></i>
-                <span>My Classes</span>
-            </a>
-            <a href="schedule.php">
-                <i class="fas fa-calendar-alt"></i>
-                <span>Class Schedule</span>
-            </a>
-            
-            <div class="menu-section">Communication</div>
-            <a href="notifications.php">
-                <i class="fas fa-bell"></i>
-                <span>Notifications</span>
-            </a>
-            <a href="messages.php">
-                <i class="fas fa-envelope"></i>
-                <span>Messages</span>
-            </a>
-            
-            <div class="menu-section">Profile</div>
-            <a href="profile.php">
-                <i class="fas fa-user-circle"></i>
-                <span>My Profile</span>
-            </a>
-            <a href="settings.php">
-                <i class="fas fa-cog"></i>
-                <span>Settings</span>
-            </a>
-        </div>
-        
-        <div class="sidebar-footer">
-            <a href="../logout.php" style="background: rgba(255,255,255,0.1); border-radius: 8px; padding: 0.8rem; text-align: center; display: block;">
-                <i class="fas fa-sign-out-alt"></i>
-                <span>Logout</span>
-            </a>
-        </div>
-    </div>
+    <?php include __DIR__ . '/../includes/sidebar.php'; ?>
     
     <!-- Main Content -->
     <div class="main-content">
@@ -754,10 +713,7 @@ body {
         </div>
         
         <div class="topbar-right">
-            <div class="notification-icon">
-                <i class="fas fa-bell"></i>
-                <span class="notification-badge">3</span>
-            </div>
+            <?php echo getNotificationBadgeHTML($user_id, 'comment_students.php'); ?>
             
             <div class="user-profile">
                 <div class="user-avatar">
@@ -850,37 +806,87 @@ body {
     <input type="text" name="title" id="title" class="form-control" required value="<?= htmlspecialchars($_POST['title'] ?? '') ?>">
 </div>
 
-<div class="mb-4">
+                <div class="mb-4">
     <label for="due_date" class="form-label">
         <i class="fas fa-calendar-alt" style="color: #4facfe;"></i> Due Date
     </label>
     <input type="date" name="due_date" id="due_date" class="form-control" required value="<?= htmlspecialchars($_POST['due_date'] ?? '') ?>">
 </div>
 
+                <div class="mb-4">
+                    <label for="total_marks" class="form-label">
+                        <i class="fas fa-star" style="color: #f093fb;"></i> Total Marks
+                    </label>
+                    <input type="number" name="total_marks" id="total_marks" class="form-control" min="1" value="<?= htmlspecialchars($_POST['total_marks'] ?? '100') ?>" required>
+                </div>
 
                 <button type="submit" class="btn-submit">
                     <i class="fas fa-upload"></i>
                     Upload Assignment
                 </button>
-            </form>
-
-            <!-- Info Box -->
+            </form>            <!-- Info Box -->
             <div class="info-box">
                 <h6>
                     <i class="fas fa-info-circle"></i>
                     Upload Guidelines
                 </h6>
                 <ul>
-                    <li>Maximum file size: 10MB</li>
-                    <li>Supported formats: PDF, Word, PowerPoint, Images</li>
+                    <li>Maximum file size: 20MB</li>
+                    <li>Supported formats: PDF, Word (DOC, DOCX), PowerPoint (PPT, PPTX), Excel (XLS, XLSX), Images (JPG, PNG, GIF), Text, ZIP, RAR, Video (MP4, AVI, MOV)</li>
                     <li>Files will be accessible to all students in the selected subject</li>
                     <li>You can upload multiple assignments by repeating this process</li>
                 </ul>
             </div>
         </div>
+
+        <!-- My Assignments Section -->
+        <div class="upload-card" style="margin-top: 2rem;">
+            <h3 style="margin-bottom: 1.5rem; color: #5a5c69;">
+                <i class="fas fa-list me-2"></i>My Assignments
+            </h3>
+            
+            <?php if (empty($my_assignments)): ?>
+                <div style="text-align: center; padding: 2rem; color: #999;">
+                    <i class="fas fa-inbox" style="font-size: 2rem; margin-bottom: 1rem; display: block;"></i>
+                    <p>No assignments uploaded yet. Upload your first assignment above.</p>
+                </div>
+            <?php else: ?>
+                <div style="overflow-x: auto;">
+                    <table class="table table-hover" style="margin: 0;">
+                        <thead style="background: #f8f9fc; border-bottom: 2px solid #e3e6f0;">
+                            <tr>
+                                <th style="color: #5a5c69; font-weight: 600;">Title</th>
+                                <th style="color: #5a5c69; font-weight: 600;">Subject</th>
+                                <th style="color: #5a5c69; font-weight: 600;">Due Date</th>
+                                <th style="color: #5a5c69; font-weight: 600;">Total Marks</th>
+                                <th style="color: #5a5c69; font-weight: 600;">Status</th>
+                                <th style="color: #5a5c69; font-weight: 600;">Created</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($my_assignments as $assign): ?>
+                                <tr>
+                                    <td>
+                                        <strong style="color: #667eea;"><?= htmlspecialchars($assign['title'] ?? '—') ?></strong>
+                                    </td>
+                                    <td><?= htmlspecialchars($assign['subject_name'] ?? '—') ?></td>
+                                    <td><?= isset($assign['due_date']) ? date('M d, Y', strtotime($assign['due_date'])) : '—' ?></td>
+                                    <td><?= htmlspecialchars($assign['total_marks'] ?? '—') ?></td>
+                                    <td>
+                                        <span class="badge" style="background: <?= strtotime($assign['due_date']) > time() ? '#38ef7d' : '#fa709a' ?>; color: white; padding: 0.5rem 1rem;">
+                                            <?= strtotime($assign['due_date']) > time() ? 'Active' : 'Expired' ?>
+                                        </span>
+                                    </td>
+                                    <td><?= isset($assign['created_at']) ? date('M d, Y H:i', strtotime($assign['created_at'])) : '—' ?></td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            <?php endif; ?>
+        </div>
     </div>
 </div>
-v>
     
     <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>

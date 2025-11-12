@@ -15,6 +15,9 @@ if (!isLoggedIn() || $_SESSION['role'] !== 'admin') {
 
 $db = getDB();
 
+// Get unread notifications count
+$admin_id = $_SESSION['user_id'];
+$unreadNotifications = getUnreadNotificationCount($admin_id);
 
 // Get dashboard statistics
 $teacherCount = $db->query("SELECT COUNT(*) as total FROM users WHERE role = 'teacher'")->fetch()['total'];
@@ -35,6 +38,40 @@ $recentAssignments = $db->query("SELECT a.*, sub.subject_name, CONCAT(t.first_na
 
 // Get current user info
 $currentUser = getCurrentUser();
+
+// Prepare system activity data (last 7 days)
+$activityDays = 7;
+$activityLabels = [];
+$studentsActivity = [];
+$teachersActivity = [];
+$auditActivity = [];
+for ($i = $activityDays - 1; $i >= 0; $i--) {
+    $date = date('Y-m-d', strtotime("-{$i} days"));
+    $activityLabels[] = date('D', strtotime($date));
+
+    // Students created on this date
+    $s = $db->query("SELECT COUNT(*) as total FROM users WHERE role = 'student' AND DATE(created_at) = :d")
+        ->bind(':d', $date)->fetch();
+    $studentsActivity[] = (int)($s['total'] ?? 0);
+
+    // Teachers created on this date
+    $t = $db->query("SELECT COUNT(*) as total FROM users WHERE role = 'teacher' AND DATE(created_at) = :d")
+        ->bind(':d', $date)->fetch();
+    $teachersActivity[] = (int)($t['total'] ?? 0);
+
+    // Audit log events on this date
+    $a = $db->query("SELECT COUNT(*) as total FROM audit_log WHERE DATE(created_at) = :d")
+        ->bind(':d', $date)->fetch();
+    $auditActivity[] = (int)($a['total'] ?? 0);
+}
+
+$activityLabelsJson = json_encode($activityLabels);
+$studentsActivityJson = json_encode($studentsActivity);
+$teachersActivityJson = json_encode($teachersActivity);
+$auditActivityJson = json_encode($auditActivity);
+
+// Fetch recent audit log entries for display
+$recentActivity = $db->query("SELECT al.*, u.username FROM audit_log al LEFT JOIN users u ON al.user_id = u.user_id ORDER BY al.created_at DESC LIMIT 10")->fetchAll();
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -272,6 +309,15 @@ $currentUser = getCurrentUser();
             align-items: center;
             justify-content: center;
             font-weight: 600;
+        }
+        
+        @keyframes pulse {
+            0%, 100% {
+                box-shadow: 0 0 0 0 rgba(231, 74, 59, 0.7);
+            }
+            50% {
+                box-shadow: 0 0 0 6px rgba(231, 74, 59, 0);
+            }
         }
         
         .user-profile {
@@ -514,6 +560,7 @@ $currentUser = getCurrentUser();
         .action-btn i {
             font-size: 2rem;
             background: var(--primary-gradient);
+            background-clip: text;
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
@@ -570,79 +617,7 @@ $currentUser = getCurrentUser();
     </style>
 </head>
 <body>
-    <!-- Sidebar -->
-    <div class="sidebar" id="sidebar">
-        <div class="sidebar-header">
-            <i class="fas fa-graduation-cap"></i>
-            <h4>School Portal</h4>
-            <p>Admin Panel</p>
-        </div>
-        
-        <div class="sidebar-menu">
-            <div class="menu-section">Main Menu</div>
-            <a href="dashboard.php" class="active">
-                <i class="fas fa-home"></i>
-                <span>Dashboard</span>
-            </a>
-            <a href="manage_teachers.php">
-                <i class="fas fa-chalkboard-teacher"></i>
-                <span>Manage Teachers</span>
-            </a>
-            <a href="manage_students.php">
-                <i class="fas fa-user-graduate"></i>
-                <span>View Students</span>
-            </a>
-            <a href="manage_subjects.php">
-                <i class="fas fa-book"></i>
-                <span>Manage Subjects</span>
-            </a>
-            <a href="manage_timetable.php">
-                <i class="fas fa-calendar-alt"></i>
-                <span>Timetables</span>
-            </a>
-            
-            <div class="menu-section">Academic</div>
-            <a href="assignments.php">
-                <i class="fas fa-tasks"></i>
-                <span>Assignments</span>
-            </a>
-            <a href="attendance.php">
-                <i class="fas fa-clipboard-check"></i>
-                <span>Attendance</span>
-            </a>
-            <a href="grades.php">
-                <i class="fas fa-chart-line"></i>
-                <span>Grades</span>
-            </a>
-            
-            <div class="menu-section">Communication</div>
-            <a href="notifications.php">
-                <i class="fas fa-bell"></i>
-                <span>Notifications</span>
-            </a>
-            <a href="message.php">
-                <i class="fas fa-envelope"></i>
-                <span>Message</span>
-            </a>
-            
-            <div class="menu-section">System</div>
-            <a href="reports.php">
-                <i class="fas fa-file-alt"></i>
-                <span>Reports</span>
-            </a>
-            <a href="settings.php">
-                <i class="fas fa-cog"></i>
-                <span>Settings</span>
-            </a>
-        </div>
-        
-        <div class="sidebar-footer">
-            <a href="../logout.php" style="background: rgba(255,255,255,0.1); border-radius: 8px; padding: 0.8rem; text-align: center;">
-                <i class="fas fa-sign-out-alt"></i>
-                <span>Logout</span>
-            </a>
-        </div>
-    </div>
+    <?php include __DIR__ . '/../includes/sidebar.php'; ?>
     
     <!-- Main Content -->
     <div class="main-content">
@@ -660,8 +635,14 @@ $currentUser = getCurrentUser();
                 </div>
                 
                 <div class="notification-icon">
-                    <i class="fas fa-bell"></i>
-                    <span class="notification-badge">5</span>
+                    <a href="notifications.php" style="color: inherit; text-decoration: none;">
+                        <i class="fas fa-bell"></i>
+                        <?php if ($unreadNotifications > 0): ?>
+                            <span class="notification-badge" style="background: #ff4444; animation: pulse 1.5s infinite;">
+                                <?= $unreadNotifications > 9 ? '9+' : $unreadNotifications ?>
+                            </span>
+                        <?php endif; ?>
+                    </a>
                 </div>
                 
                 <div class="user-profile">
@@ -810,23 +791,60 @@ $currentUser = getCurrentUser();
                 </div>
             </div>
             
-           <!-- Activity Chart -->
-<div class="content-card">
-  <div class="card-header-custom">
-    <h5><i class="fas fa-chart-area me-2"></i>System Activity</h5>
-    <form method="GET" id="activityForm">
-      <select name="range" class="form-select" style="width: auto;" onchange="document.getElementById('activityForm').submit()">
-        <option value="7" <?= ($range == '7' ? 'selected' : '') ?>>Last 7 Days</option>
-        <option value="30" <?= ($range == '30' ? 'selected' : '') ?>>Last 30 Days</option>
-        <option value="90" <?= ($range == '90' ? 'selected' : '') ?>>Last 3 Months</option>
-      </select>
-    </form>
-  </div>
-  <div class="chart-container">
-    <canvas id="activityChart"></canvas>
-  </div>
-</div>
+            <!-- Activity Chart -->
+            <div class="content-card">
+                <div class="card-header-custom">
+                    <h5><i class="fas fa-chart-area me-2"></i>System Activity</h5>
+                    <select class="form-select" style="width: auto;">
+                        <option>Last 7 Days</option>
+                        <option>Last 30 Days</option>
+                        <option>Last 3 Months</option>
+                    </select>
+                </div>
+                <div class="chart-container">
+                    <canvas id="activityChart"></canvas>
+                </div>
+            </div>
 
+            <!-- Recent System Activity -->
+            <div class="content-card">
+                <div class="card-header-custom">
+                    <h5><i class="fas fa-history me-2"></i>Recent System Activity</h5>
+                    <span class="badge bg-secondary"><?= count($recentActivity) ?> Events</span>
+                </div>
+                <div style="overflow:auto;">
+                    <table class="custom-table">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>User</th>
+                                <th>Action</th>
+                                <th>Target</th>
+                                <th>Record</th>
+                                <th>Description</th>
+                                <th>IP</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php if (empty($recentActivity)): ?>
+                                <tr><td colspan="7" class="text-center text-muted">No recent activity</td></tr>
+                            <?php else: ?>
+                                <?php foreach ($recentActivity as $act): ?>
+                                    <tr>
+                                        <td><?= isset($act['created_at']) ? date('M d, Y H:i', strtotime($act['created_at'])) : '—' ?></td>
+                                        <td><?= htmlspecialchars($act['username'] ?? ('User#' . ($act['user_id'] ?? '—'))) ?></td>
+                                        <td><?= htmlspecialchars($act['action'] ?? '—') ?></td>
+                                        <td><?= htmlspecialchars($act['table_affected'] ?? '—') ?></td>
+                                        <td><?= htmlspecialchars($act['record_id'] ?? '—') ?></td>
+                                        <td><?= htmlspecialchars($act['description'] ?? '—') ?></td>
+                                        <td><?= htmlspecialchars($act['ip_address'] ?? '—') ?></td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
             
             <!-- Quick Actions -->
             <div class="content-card">
@@ -877,10 +895,10 @@ $currentUser = getCurrentUser();
         new Chart(ctx, {
             type: 'line',
             data: {
-                labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+                labels: <?= $activityLabelsJson ?>,
                 datasets: [{
-                    label: 'Students',
-                    data: [12, 19, 15, 25, 22, 30, 28],
+                    label: 'New Students',
+                    data: <?= $studentsActivityJson ?>,
                     borderColor: '#667eea',
                     backgroundColor: gradient1,
                     borderWidth: 3,
@@ -892,8 +910,8 @@ $currentUser = getCurrentUser();
                     pointRadius: 5,
                     pointHoverRadius: 7
                 }, {
-                    label: 'Teachers',
-                    data: [5, 8, 6, 10, 9, 12, 11],
+                    label: 'New Teachers',
+                    data: <?= $teachersActivityJson ?>,
                     borderColor: '#11998e',
                     backgroundColor: gradient2,
                     borderWidth: 3,
@@ -904,6 +922,19 @@ $currentUser = getCurrentUser();
                     pointBorderWidth: 2,
                     pointRadius: 5,
                     pointHoverRadius: 7
+                }, {
+                    label: 'System Events',
+                    data: <?= $auditActivityJson ?>,
+                    borderColor: '#f093fb',
+                    backgroundColor: 'rgba(240,147,251,0.2)',
+                    borderWidth: 2,
+                    tension: 0.4,
+                    fill: true,
+                    pointBackgroundColor: '#f093fb',
+                    pointBorderColor: '#fff',
+                    pointBorderWidth: 2,
+                    pointRadius: 4,
+                    pointHoverRadius: 6
                 }]
             },
             options: {

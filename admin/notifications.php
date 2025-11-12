@@ -2,6 +2,7 @@
 define('APP_ACCESS', true);
 require_once __DIR__ . '/../includes/config.php';
 require_once __DIR__ . '/../includes/db.php';
+require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/auth.php';
 
 startSecureSession();
@@ -506,78 +507,7 @@ $notifications = $db->query("SELECT * FROM notifications ORDER BY created_at DES
 </head>
 <body>
     <!-- Sidebar -->
-    <div class="sidebar" id="sidebar">
-        <div class="sidebar-header">
-            <i class="fas fa-graduation-cap"></i>
-            <h4>School Portal</h4>
-            <p>Admin Panel</p>
-        </div>
-        
-        <div class="sidebar-menu">
-            <div class="menu-section">Main Menu</div>
-            <a href="dashboard.php">
-                <i class="fas fa-home"></i>
-                <span>Dashboard</span>
-            </a>
-            <a href="manage_teachers.php">
-                <i class="fas fa-chalkboard-teacher"></i>
-                <span>Manage Teachers</span>
-            </a>
-            <a href="manage_students.php">
-                <i class="fas fa-user-graduate"></i>
-                <span>View Students</span>
-            </a>
-            <a href="manage_subjects.php">
-                <i class="fas fa-book"></i>
-                <span>Manage Subjects</span>
-            </a>
-            <a href="manage_timetable.php">
-                <i class="fas fa-calendar-alt"></i>
-                <span>Timetables</span>
-            </a>
-            
-            <div class="menu-section">Academic</div>
-            <a href="assignments.php">
-                <i class="fas fa-tasks"></i>
-                <span>Assignments</span>
-            </a>
-            <a href="attendance.php">
-                <i class="fas fa-clipboard-check"></i>
-                <span>Attendance</span>
-            </a>
-            <a href="grades.php">
-                <i class="fas fa-chart-line"></i>
-                <span>Grades</span>
-            </a>
-            
-            <div class="menu-section">Communication</div>
-            <a href="notifications.php" class="active">
-                <i class="fas fa-bell"></i>
-                <span>Notifications</span>
-            </a>
-            <a href="messages.php">
-                <i class="fas fa-envelope"></i>
-                <span>Messages</span>
-            </a>
-            
-            <div class="menu-section">System</div>
-            <a href="reports.php">
-                <i class="fas fa-file-alt"></i>
-                <span>Reports</span>
-            </a>
-            <a href="settings.php">
-                <i class="fas fa-cog"></i>
-                <span>Settings</span>
-            </a>
-        </div>
-        
-        <div class="sidebar-footer">
-            <a href="../logout.php" style="background: rgba(255,255,255,0.1); border-radius: 8px; padding: 0.8rem; text-align: center; display: block;">
-                <i class="fas fa-sign-out-alt"></i>
-                <span>Logout</span>
-            </a>
-        </div>
-    </div>
+    <?php include __DIR__ . '/../includes/sidebar.php'; ?>
     
     <!-- Main Content -->
     <div class="main-content">
